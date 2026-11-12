@@ -19,7 +19,7 @@ from umqtt.simple import MQTTClient
 import config
 import wifi
 from shifter import Shifter
-from stepper_async_timer_shifter_lab8 import Stepper
+from lab8 import Stepper
 
 LASER_PIN = 8           # onboard LED, active LOW -- stands in for the laser
 
@@ -43,39 +43,50 @@ class Turret:
     # --- laser ---------------------------------------------------------------
 
     def laser_on(self):
-        pass  # YOUR CODE HERE
+        self.laser.value(0) # 0 is on
+        self.firing = True
 
     def laser_off(self):
-        pass  # YOUR CODE HERE
+        self.laser.value(1)
+        self.firing = True
 
     def fire(self, seconds=None):
         """Laser on for exactly `seconds`, then off."""
-        pass  # YOUR CODE HERE
+        try:
+            self.laser_on()
+            if seconds is not None:
+                await asyncio.sleep(seconds)
+            finally:
+                self.laser_off()
 
     # --- motion --------------------------------------------------------------
 
     def goto(self, az=None, alt=None):
         """Absolute move.  Both axes must arrive together."""
-        pass  # YOUR CODE HERE
+        Stepper.go_together((az, 0), (alt, 0)) # IDK IF THIS WILL WORK?
 
     def jog(self, axis, deg):
         """Relative move, degrees."""
-        pass  # YOUR CODE HERE
+        move_together((axis, deg))
 
     def step(self, axis, steps):
         """Relative move, raw half-steps."""
-        pass  # YOUR CODE HERE
+        move_together((axis, steps))
 
     def zero(self, axis=None):
         """Current position becomes 0 deg, for one axis or both."""
-        pass  # YOUR CODE HERE
+        axis.zero()
 
     def release(self):
-        pass  # YOUR CODE HERE
+        #IDK IF THIS WILL WORK
+        az.release()
+        alt.release()
 
     def stop(self):
         """Abort everything.  Laser off first."""
-        pass  # YOUR CODE HERE
+        #IDK IF THIS WILL WORK
+        laser.value(0)
+        m.release()
 
     # --- state ---------------------------------------------------------------
 

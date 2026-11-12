@@ -10,6 +10,8 @@ import json
 import ssl
 from machine import Pin
 from umqtt.simple import MQTTClient
+from shifter import Shifter
+from lab8 import Stepper
 
 # --- Setup ---
 led = Pin(8, Pin.OUT)  # Built-in LED
@@ -56,12 +58,23 @@ def start_comms():
 
     return client
 
-def run():
+async def run():
     client = start_comms()
+
+    import asyncio
+
     # Continually publish sensor data and monitor incoming messages
     while True:
         # Check for incoming messages (non-blocking)
+       
+       
+        s = Shifter(data=5, latch=6, clock=7)
+        m1, m2 = Stepper (s), Stepper (s)
+        m1. rotate(360)
+        await m1.idle()
+        
         client.check_msg()
+       
 
         # Publish sensor data (random noise for now)
         import random

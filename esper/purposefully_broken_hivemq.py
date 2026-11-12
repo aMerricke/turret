@@ -59,22 +59,19 @@ def start_comms():
     return client
 
 async def run():
+    print('ACTUALLY running hivemq')
     client = start_comms()
-
-    import asyncio
 
     # Continually publish sensor data and monitor incoming messages
     while True:
         # Check for incoming messages (non-blocking)
+        client.check_msg()
        
-       
-        s = Shifter(data=5, latch=6, clock=7)
+        s = Shifter(data=5, latch=6,
+        clock=7)
         m1, m2 = Stepper (s), Stepper (s)
         m1. rotate(360)
         await m1.idle()
-        
-        client.check_msg()
-       
 
         # Publish sensor data (random noise for now)
         import random

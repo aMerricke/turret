@@ -22,7 +22,6 @@ STOP then ctrl-D for a soft reboot without losing serial connection.
 import time
 import config
 import wifi
-import hivemq
 
 for _ in range(3):
     print('.', end='')
@@ -30,6 +29,5 @@ for _ in range(3):
 print('ESP32 C3 SuperMini booted up\n')
 
 wifi.connect()
-hivemq.run()
 
 # import i2c_scanner

@@ -9,11 +9,14 @@
 #   - Nothing here may call time.sleep().
 # =============================================================================
 
+# Teammates: Jason (Jaegeon) Lee, Jenita Shrestha, Merrick Summers, Daniel Zheng
+
 import asyncio
 import json
 import time
+import ssl
 
-from machine import Pin
+from machine import Pin 
 from umqtt.simple import MQTTClient
 
 import config
@@ -48,51 +51,76 @@ class Turret:
 
     def laser_off(self):
         self.laser.value(1)
-        self.firing = True
+        self.firing = False
 
-    def fire(self, seconds=None):
+    async def fire(self, seconds=None):
         """Laser on for exactly `seconds`, then off."""
         try:
             self.laser_on()
             if seconds is not None:
                 await asyncio.sleep(seconds)
-            finally:
+        finally:
                 self.laser_off()
 
     # --- motion --------------------------------------------------------------
 
-    def goto(self, az=None, alt=None):
+    async def goto(self, az=None, alt=None):
         """Absolute move.  Both axes must arrive together."""
-        Stepper.go_together((az, 0), (alt, 0)) # IDK IF THIS WILL WORK?
+        if az is None:
+            az = self.az.angle
+        if alt is None:
+            alt = self.alt.angle
+        Stepper.go_together((self.az, az), (self.alt, alt))
 
-    def jog(self, axis, deg):
+    async def jog(self, axis, deg):
         """Relative move, degrees."""
-        move_together((axis, deg))
+        if axis == "az":
+            Stepper.move_together((self.az, deg))
+        elif axis == "alt":
+            Stepper.move_together((self.alt, deg))
 
-    def step(self, axis, steps):
+    # Note: It seems awful and disgusting that we are converting to degrees and
+    # then back to steps internally to do this, but hopefully it doesn't cause
+    # any actual precision errors - Merrick S. 2026-11-12
+    async def step(self, axis, steps):
         """Relative move, raw half-steps."""
-        move_together((axis, steps))
+        deg = steps * 360 / Stepper.STEPS_PER_REV
+        if axis == "az":
+            Stepper.move_together((self.az, deg))
+        elif axis == "alt":
+            Stepper.move_together((self.alt, deg))
+
 
     def zero(self, axis=None):
         """Current position becomes 0 deg, for one axis or both."""
-        axis.zero()
-
+        if axis is None:
+            self.az.zero()
+            self.alt.zero()
+        elif axis == "az":
+            self.az.zero()
+        elif axis == "alt":
+            self.alt.zero()    
+            
     def release(self):
-        #IDK IF THIS WILL WORK
-        az.release()
-        alt.release()
+        self.az.release()
+        self.alt.release()
 
     def stop(self):
         """Abort everything.  Laser off first."""
-        #IDK IF THIS WILL WORK
-        laser.value(0)
-        m.release()
+        self.laser_off()
+        self.release()
 
     # --- state ---------------------------------------------------------------
 
     def telemetry(self):
         """Return a dict describing the current state."""
-        pass  # YOUR CODE HERE
+        return {
+            'az_angle': self.az.angle, 
+            'alt_angle': self.alt.angle,
+            'laser_on': self.firing,
+            'move_in_progress': self.az._remaining > 0 or self.alt._remaining > 0,
+            'last_message_received': self.message
+        }
 
 
 class Comms:
@@ -106,41 +134,95 @@ class Comms:
         turret.notify = self.publish_telemetry
 
         self.dispatch = {
-            # 'CMD': lambda d: ...,
-            # YOUR CODE HERE
+            'LASER_ON': lambda d: self.turret.laser_on(),
+            'LASER_OFF': lambda d: self.turret.laser_off(),
+            'FIRE': lambda d: asyncio.create_task(self.turret.fire(d.get('seconds', 3))),
+            'GOTO': lambda d: asyncio.create_task(self.turret.goto(d.get('az'), d.get('alt'))),
+            'JOG': lambda d: asyncio.create_task(self.turret.jog(d.get('axis'), d.get('deg'))),
+            'STEP': lambda d: asyncio.create_task(self.turret.step(d.get('axis'), d.get('steps'))),
+            'ZERO': lambda d: self.turret.zero(d.get('axis')),
+            'STOP': lambda d: self.turret.stop(),
+            'STATUS': lambda d: self.turret.notify(),
         }
 
     # --- connection ----------------------------------------------------------
 
     def connect(self):
         """TLS connect, last will, subscribe, announce."""
-        pass  # YOUR CODE HERE
+        ssl_params = {'server_hostname': config.MQTT_BROKER}
+        self.client = MQTTClient(
+            client_id=config.TERPMAIL_USERNAME,
+            server=config.MQTT_BROKER,
+            port=config.MQTT_PORT,
+            user=config.MQTT_USER,
+            password=config.MQTT_PASS,
+            keepalive=5,
+            ssl=True,
+            ssl_params=ssl_params
+        )
+        # Set callback and connect
+        self.client.set_callback(self._on_message)
+        self.client.set_last_will(config.TOPIC_STATUS, b'offline', retain=True)  # execute if connection dropped
+        self.client.connect()
+        self.client.subscribe(config.TOPIC_COMMANDS)
+        self.connected = True
+        print(f'Connected to MQTT broker, subscribed to {config.TOPIC_COMMANDS}')
 
+        # Publish online status
+        self.client.publish(config.TOPIC_STATUS, b'online', retain=True)
+   
+   
     # --- incoming ------------------------------------------------------------
 
     def _on_message(self, topic, msg):
         """umqtt callback.  Runs inside check_msg(), so keep it short."""
-        pass  # YOUR CODE HERE
+        print(f'Received on {topic}: {msg.decode()}')
+        self.turret.message = msg.decode()
+        try:
+            data = json.loads(msg.decode())
+            cmd = data.get('cmd', '')
+            if cmd in self.dispatch:
+                self.dispatch[cmd](data)
+            else:
+                self.turret.message = f'Unknown command: {cmd}'
+        except Exception as e:
+            print('Error parsing message:', e)
 
     async def _rx_loop(self):
         """Poll the broker forever."""
-        pass  # YOUR CODE HERE
+        while True:
+            try:
+                if self.client: #is server running 
+                    self.client.check_msg() 
+            except Exception as e:
+                print('RX error:', e)
+            await asyncio.sleep_ms(100)
 
     # --- outgoing ------------------------------------------------------------
 
     def publish_telemetry(self):
         """Send one telemetry packet on the sensor topic."""
-        pass  # YOUR CODE HERE
+        if not self.connected or not self.client:
+            return
+        state = self.turret.telemetry()
+        payload = json.dumps(state)
+        self.client.publish(config.TOPIC_SENSOR, payload.encode('utf-8'))
+        # print(f'Published: {payload}')
 
     async def _tx_loop(self):
         """Publish telemetry every PUBLISH_MS forever."""
-        pass  # YOUR CODE HERE
+        while True:
+            self.publish_telemetry()
+            await asyncio.sleep(PUBLISH_MS/1000)
 
     # --- entry point ---------------------------------------------------------
 
     def start(self):
         """Launch both loops as tasks.  Returns immediately."""
-        pass  # YOUR CODE HERE
+        if not self.connected:
+            self.connect()
+        asyncio.create_task(self._rx_loop())
+        asyncio.create_task(self._tx_loop())
 
 
 async def main():

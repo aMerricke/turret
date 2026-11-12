@@ -19,7 +19,7 @@ from umqtt.simple import MQTTClient
 import config
 import wifi
 from shifter import Shifter
-from stepper_async_timer_shifter_lab8 import Stepper
+from lab8 import Stepper
 
 LASER_PIN = 8           # onboard LED, active LOW -- stands in for the laser
 

@@ -10,6 +10,8 @@ import json
 import ssl
 from machine import Pin
 from umqtt.simple import MQTTClient
+from shifter import Shifter
+from lab8 import Stepper
 
 # --- Setup ---
 led = Pin(8, Pin.OUT)  # Built-in LED
@@ -58,11 +60,45 @@ def start_comms():
 
 def run():
     client = start_comms()
+
+    # LAB 10 PART B START
+    print('Part B START')
+    shifter = Shifter(data=5, latch=6, clock=7)
+    motor1 = Stepper(shifter)  # First motor (bits 0-3)
+    motor2 = Stepper(shifter)  # Second motor (bits 4-7)
+    
+    motor1.zero()
+    motor2.zero()
+    
+    # Method 1: Schedule a task, but it never runs because the event loop
+    # is never created
+    # motor1.rotate(360)
+
+    # Method 2: Manually set the motor's internal state to make it turn,
+    # essentially simulating running the _arm coroutine. This one actually
+    # runs concurrently with the publishing updates, because the hardware
+    # timer is not blocked by time.sleep, and its soft interrupts then still
+    # get to run.
+    # steps, direction = Stepper._steps_for_delta(360)
+    # motor1._err = 0
+    # motor1._num = steps // 2
+    # motor1._den = steps
+    # motor1._dir = direction
+    # motor1._remaining = steps
+
+    # Method 3: Run the whole rotation in an event loop first, and only then
+    # go into the comms publishing loop.
+    import asyncio
+    asyncio.run(motor1._rotate(360))
+
+    print('Part B END')
+    # LAB 10 PART B END
+    
     # Continually publish sensor data and monitor incoming messages
     while True:
         # Check for incoming messages (non-blocking)
         client.check_msg()
-
+       
         # Publish sensor data (random noise for now)
         import random
         sensor_1 = random.randint(0,100)
